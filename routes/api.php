@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\WalletController;
 use App\Http\Controllers\Api\GameRoomController;
 use App\Http\Controllers\Api\GameController;
 use App\Http\Controllers\Api\StatsController;
+use App\Http\Controllers\Api\CallbackController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -65,6 +66,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/achievements', [StatsController::class, 'achievements']);
         Route::get('/user/{userId}', [StatsController::class, 'userStats']);
     });
+});
+
+// Routes de callback (sans authentification)
+Route::group(['prefix' => 'callback'], function () {
+    // E-Billing callbacks
+    Route::post('/ebilling/notification', [CallbackController::class, 'ebillingNotification'])->name('ebilling.notification');
+    Route::get('/ebilling/redirect', [CallbackController::class, 'ebillingRedirect'])->name('ebilling.redirect');
+
+    // SHAP webhook
+    Route::post('/shap/webhook', [CallbackController::class, 'shapWebhook'])->name('shap.webhook');
 });
 
 // Route de test

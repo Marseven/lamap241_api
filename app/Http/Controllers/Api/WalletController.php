@@ -4,11 +4,18 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
+use App\Services\MobileMoneyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class WalletController extends Controller
 {
+    protected $mobileMoneyService;
+
+    public function __construct(MobileMoneyService $mobileMoneyService)
+    {
+        $this->mobileMoneyService = $mobileMoneyService;
+    }
     /**
      * Get wallet balance.
      */
@@ -89,30 +96,24 @@ class WalletController extends Controller
         ]);
 
         $user = $request->user();
-        $wallet = $user->wallet;
 
-        // Créer la transaction en attente
-        $transaction = DB::transaction(function () use ($wallet, $validated, $user) {
-            return $wallet->transactions()->create([
-                'user_id' => $user->id,
-                'reference' => 'DEP-' . uniqid(),
-                'type' => 'deposit',
-                'amount' => $validated['amount'],
-                'balance_before' => $wallet->balance,
-                'balance_after' => $wallet->balance, // Sera mis à jour après confirmation
-                'status' => 'pending',
-                'payment_method' => $validated['payment_method'],
-                'phone_number' => $validated['phone_number'],
+        // Utiliser le service Mobile Money pour E-Billing
+        $result = $this->mobileMoneyService->initiateDeposit($user, $validated);
+
+        if ($result['success']) {
+            return response()->json([
+                'success' => true,
+                'transaction' => $result['transaction'],
+                'payment_url' => env('EBILLING_POST_URL'),
+                'invoice_number' => $result['invoice']['bill_id'],
+                'message' => 'Redirection vers la page de paiement...'
             ]);
-        });
-
-        // Simuler l'appel API Mobile Money
-        $this->processMobileMoneyDeposit($transaction);
+        }
 
         return response()->json([
-            'transaction' => $transaction,
-            'message' => 'Dépôt en cours de traitement. Veuillez confirmer sur votre téléphone.',
-        ]);
+            'success' => false,
+            'message' => $result['message'] ?? 'Erreur lors de l\'initialisation du paiement'
+        ], 400);
     }
 
     /**
@@ -127,46 +128,25 @@ class WalletController extends Controller
         ]);
 
         $user = $request->user();
-        $wallet = $user->wallet;
 
-        // Calculer les frais (5%)
-        $fee = $validated['amount'] * 0.05;
-        $totalAmount = $validated['amount'] + $fee;
+        // Utiliser le service Mobile Money pour SHAP
+        $result = $this->mobileMoneyService->initiateWithdrawal($user, $validated);
 
-        // Vérifier le solde
-        if ($wallet->available_balance < $totalAmount) {
+        if ($result['success']) {
             return response()->json([
-                'message' => 'Solde insuffisant. Solde disponible: ' . number_format($wallet->available_balance, 0, ',', ' ') . ' FCFA',
-                'available_balance' => $wallet->available_balance,
-                'required_amount' => $totalAmount,
-                'fee' => $fee,
-            ], 400);
+                'success' => true,
+                'transaction' => $result['transaction'],
+                'message' => 'Retrait en cours de traitement.',
+                'amount' => $validated['amount'],
+                'fee' => $result['transaction']->fee,
+                'total' => abs($result['transaction']->amount) + $result['transaction']->fee,
+            ]);
         }
-
-        // Créer la transaction
-        $transaction = $wallet->withdraw(
-            $validated['amount'],
-            $validated['payment_method'],
-            $validated['phone_number'],
-            $fee
-        );
-
-        if (!$transaction) {
-            return response()->json([
-                'message' => 'Impossible de traiter le retrait'
-            ], 400);
-        }
-
-        // Simuler le traitement
-        $this->processMobileMoneyWithdrawal($transaction);
 
         return response()->json([
-            'transaction' => $transaction,
-            'message' => 'Retrait en cours de traitement.',
-            'amount' => $validated['amount'],
-            'fee' => $fee,
-            'total' => $totalAmount,
-        ]);
+            'success' => false,
+            'message' => $result['message'] ?? 'Erreur lors du retrait'
+        ], 400);
     }
 
     /**
