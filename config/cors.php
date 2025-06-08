@@ -28,7 +28,7 @@ return [
         'http://127.0.0.1:5173',
         env('FRONTEND_URL', 'http://localhost:3000'),
         // Ajouter vos domaines de production ici
-        // 'https://lamap241.com',
+        'https://lamap241.vercel.app',
         // 'https://www.lamap241.com',
     ],
 
