@@ -37,6 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/transactions/{reference}', [WalletController::class, 'transactionDetails']);
         Route::post('/deposit', [WalletController::class, 'deposit']);
         Route::post('/withdraw', [WalletController::class, 'withdraw']);
+        Route::get('/transaction/{reference}/status', [WalletController::class, 'checkTransactionStatus']);
     });
 
     // Salles de jeu

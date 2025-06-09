@@ -15,6 +15,7 @@ class MobileMoneyService
     protected $ebillingUrl;
     protected $ebillingUsername;
     protected $ebillingSharedKey;
+    protected $ebillingPushUrl;
     protected $shapUrl;
     protected $shapApiId;
     protected $shapApiSecret;
@@ -22,7 +23,7 @@ class MobileMoneyService
     public function __construct()
     {
         // E-Billing config
-        $this->ebillingUrl = env('EBILLING_SERVER_URL');
+        $this->ebillingUrl = env('EBILLING_SERVER_URL') . '/api/v1/merchant/e_bills';
         $this->ebillingUsername = env('EBILLING_USERNAME');
         $this->ebillingSharedKey = env('EBILLING_SHARED_KEY');
 
@@ -33,9 +34,9 @@ class MobileMoneyService
     }
 
     /**
-     * Initier un dépôt via E-Billing
+     * Initier un dépôt via E-Billing avec polling
      */
-    public function initiateDeposit(User $user, array $data)
+    public function initiateDepositWithPolling(User $user, array $data)
     {
         $reference = $this->generateReference();
         $amount = $data['amount'];
@@ -56,33 +57,230 @@ class MobileMoneyService
                 'status' => 'pending',
                 'payment_method' => $paymentMethod,
                 'phone_number' => $phoneNumber,
-                'description' => "Dépôt via {$paymentMethod}"
+                'description' => "Dépôt via {$paymentMethod}",
+                'metadata' => [
+                    'polling_started_at' => now()->toISOString(),
+                    'max_polling_time' => 60 // 60 secondes
+                ]
             ]);
         });
 
         // Créer la facture E-Billing
         $invoice = $this->createEbillingInvoice($user, $transaction);
 
-        if ($invoice) {
-            // Mettre à jour la transaction avec l'ID de facturation
-            $transaction->update([
-                'external_reference' => $invoice['bill_id']
-            ]);
-
+        if (!$invoice) {
+            $transaction->markAsFailed('Impossible de créer la facture E-Billing');
             return [
-                'success' => true,
-                'transaction' => $transaction,
-                'invoice' => $invoice
+                'success' => false,
+                'message' => 'Impossible de créer la facture E-Billing'
             ];
         }
 
-        // En cas d'échec, annuler la transaction
-        $transaction->update(['status' => 'failed']);
+        // Mettre à jour la transaction avec l'ID de facturation
+        $transaction->update([
+            'external_reference' => $invoice['bill_id'],
+            'metadata' => array_merge($transaction->metadata ?? [], [
+                'ebilling_bill_id' => $invoice['bill_id'],
+                'ebilling_invoice_data' => $invoice
+            ])
+        ]);
+
+        // Déclencher le PUSH USSD
+        $pushResult = $this->triggerUssdPush($invoice['bill_id'], $phoneNumber, $paymentMethod);
+
+        if (!$pushResult) {
+            $transaction->markAsFailed('Échec du déclenchement PUSH USSD');
+            return [
+                'success' => false,
+                'message' => 'Impossible de déclencher le paiement mobile'
+            ];
+        }
+
+        // Démarrer le polling en arrière-plan
+        $this->startTransactionPolling($transaction);
 
         return [
-            'success' => false,
-            'message' => 'Impossible de créer la facture E-Billing'
+            'success' => true,
+            'transaction' => $transaction,
+            'invoice' => $invoice,
+            'message' => 'Paiement initié. Suivez les instructions sur votre téléphone.',
+            'polling_duration' => 60 // Informer le front du temps d'attente
         ];
+    }
+
+    /**
+     * Déclencher le PUSH USSD vers le numéro
+     */
+    protected function triggerUssdPush($billId, $phoneNumber, $paymentMethod)
+    {
+        try {
+            $payload = [
+                'payer_msisdn' => $phoneNumber,
+                'payment_system_name' => $paymentMethod,
+            ];
+
+            $response = Http::withBasicAuth($this->ebillingUsername, $this->ebillingSharedKey)
+                ->withHeaders(['Content-Type' => 'application/json'])
+                ->post($this->ebillingUrl . '/' . $billId . '/ussd_push', $payload);
+
+            if ($response->successful()) {
+                Log::info('PUSH USSD déclenché avec succès', [
+                    'bill_id' => $billId,
+                    'payer_msisdn' => $phoneNumber,
+                    'payment_system_name' => $paymentMethod
+                ]);
+                return true;
+            }
+
+            Log::error('Échec du PUSH USSD', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+                'bill_id' => $billId
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Exception lors du PUSH USSD', [
+                'message' => $e->getMessage(),
+                'bill_id' => $billId
+            ]);
+        }
+
+        return false;
+    }
+
+    /**
+     * Démarrer le polling de la transaction
+     */
+    protected function startTransactionPolling(Transaction $transaction)
+    {
+        // Utiliser un job en arrière-plan pour le polling
+        dispatch(function () use ($transaction) {
+            $this->pollTransactionStatus($transaction);
+        })->afterResponse();
+    }
+
+    /**
+     * Polling du statut de la transaction (toutes les 5 secondes pendant 60 secondes)
+     */
+    protected function pollTransactionStatus(Transaction $transaction)
+    {
+        $startTime = now();
+        $maxDuration = 60; // 60 secondes
+        $interval = 5; // 5 secondes
+        $attempts = 0;
+        $maxAttempts = $maxDuration / $interval; // 12 tentatives
+
+        Log::info('Démarrage du polling pour la transaction', [
+            'transaction_id' => $transaction->id,
+            'reference' => $transaction->reference,
+            'max_attempts' => $maxAttempts
+        ]);
+
+        while ($attempts < $maxAttempts) {
+            $attempts++;
+
+            // Vérifier le statut
+            $status = $this->checkEbillingTransactionStatus($transaction->external_reference);
+
+            Log::info('Tentative de polling', [
+                'transaction_id' => $transaction->id,
+                'attempt' => $attempts,
+                'status' => $status
+            ]);
+
+            if ($status === 'paid' || $status === 'completed') {
+                // Transaction réussie
+                $this->completeTransaction($transaction);
+                Log::info('Transaction complétée via polling', [
+                    'transaction_id' => $transaction->id,
+                    'attempts' => $attempts
+                ]);
+                return;
+            }
+
+            if ($status === 'failed' || $status === 'cancelled') {
+                // Transaction échouée
+                $transaction->markAsFailed('Paiement échoué ou annulé');
+                Log::info('Transaction échouée via polling', [
+                    'transaction_id' => $transaction->id,
+                    'attempts' => $attempts,
+                    'status' => $status
+                ]);
+                return;
+            }
+
+            // Attendre avant la prochaine vérification
+            if ($attempts < $maxAttempts) {
+                sleep($interval);
+            }
+        }
+
+        // Timeout atteint
+        $transaction->markAsFailed('Timeout - Aucune réponse dans les 60 secondes');
+        Log::warning('Timeout du polling', [
+            'transaction_id' => $transaction->id,
+            'total_attempts' => $attempts
+        ]);
+    }
+
+    /**
+     * Vérifier le statut d'une transaction E-Billing
+     */
+    protected function checkEbillingTransactionStatus($billId)
+    {
+        try {
+            $response = Http::withBasicAuth($this->ebillingUsername, $this->ebillingSharedKey)
+                ->get($this->ebillingUrl . '/' . $billId);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                return $data['status'] ?? 'pending';
+            }
+
+            Log::error('Erreur lors de la vérification du statut E-Billing', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+                'bill_id' => $billId
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Exception lors de la vérification du statut', [
+                'message' => $e->getMessage(),
+                'bill_id' => $billId
+            ]);
+        }
+
+        return 'unknown';
+    }
+
+    /**
+     * Compléter la transaction après paiement réussi
+     */
+    protected function completeTransaction(Transaction $transaction)
+    {
+        DB::transaction(function () use ($transaction) {
+            $wallet = $transaction->wallet;
+
+            // Mettre à jour le solde
+            $wallet->balance += $transaction->amount;
+            $wallet->total_deposited += $transaction->amount;
+            $wallet->save();
+
+            // Mettre à jour la transaction
+            $transaction->update([
+                'status' => 'completed',
+                'balance_after' => $wallet->balance,
+                'processed_at' => now(),
+                'metadata' => array_merge($transaction->metadata ?? [], [
+                    'completed_via_polling' => true,
+                    'completed_at' => now()->toISOString()
+                ])
+            ]);
+        });
+
+        Log::info('Transaction complétée avec succès', [
+            'transaction_id' => $transaction->id,
+            'reference' => $transaction->reference,
+            'amount' => $transaction->amount
+        ]);
     }
 
     /**
@@ -128,61 +326,6 @@ class MobileMoneyService
         }
 
         return null;
-    }
-
-    /**
-     * Traiter le callback E-Billing
-     */
-    public function handleEbillingCallback(array $data)
-    {
-        Log::info('E-Billing callback received', $data);
-
-        if (!isset($data['reference'])) {
-            Log::warning('E-Billing callback missing reference');
-            return false;
-        }
-
-        $transaction = Transaction::where('reference', $data['reference'])->first();
-
-        if (!$transaction) {
-            Log::warning('Transaction not found for reference: ' . $data['reference']);
-            return false;
-        }
-
-        if ($transaction->status === 'completed') {
-            Log::info('Transaction already completed: ' . $transaction->reference);
-            return true;
-        }
-
-        // Mettre à jour la transaction
-        DB::transaction(function () use ($transaction, $data) {
-            $wallet = $transaction->wallet;
-
-            // Mettre à jour le solde
-            $wallet->balance += $transaction->amount;
-            $wallet->total_deposited += $transaction->amount;
-            $wallet->save();
-
-            // Mettre à jour la transaction
-            $transaction->update([
-                'status' => 'completed',
-                'balance_after' => $wallet->balance,
-                'processed_at' => now(),
-                'metadata' => array_merge($transaction->metadata ?? [], [
-                    'ebilling_transaction_id' => $data['transactionid'] ?? null,
-                    'ebilling_operator' => $data['paymentsystem'] ?? null,
-                    'ebilling_amount' => $data['amount'] ?? null
-                ])
-            ]);
-        });
-
-        Log::info('Deposit completed successfully', [
-            'transaction_id' => $transaction->id,
-            'reference' => $transaction->reference,
-            'amount' => $transaction->amount
-        ]);
-
-        return true;
     }
 
     /**

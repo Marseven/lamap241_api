@@ -7,6 +7,7 @@ use App\Models\Transaction;
 use App\Services\MobileMoneyService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class WalletController extends Controller
 {
@@ -16,6 +17,7 @@ class WalletController extends Controller
     {
         $this->mobileMoneyService = $mobileMoneyService;
     }
+
     /**
      * Get wallet balance.
      */
@@ -85,7 +87,7 @@ class WalletController extends Controller
     }
 
     /**
-     * Deposit money.
+     * Deposit money avec polling.
      */
     public function deposit(Request $request)
     {
@@ -95,34 +97,80 @@ class WalletController extends Controller
             'phone_number' => [
                 'required',
                 'string',
-                function ($attribute, $value, $fail) {
-                    $pattern = '/^(074|077|076|062|065|066|060)[0-9]{6}$/';
-                    if (!preg_match($pattern, $value)) {
-                        $fail('Le numéro doit être un numéro Airtel (074, 077, 076) ou Moov (062, 065, 066, 060) valide.');
+                Rule::regex('/^(074|077|076|062|065|066|060)[0-9]{6}$/'),
+                function ($attribute, $value, $fail) use ($request) {
+                    // Vérifier que le numéro correspond à l'opérateur choisi
+                    $operator = $this->getOperatorFromPhone($value);
+                    if ($operator !== $request->payment_method) {
+                        $fail('Le numéro ne correspond pas à l\'opérateur sélectionné.');
                     }
-                },
+                }
             ],
+        ], [
+            'phone_number.regex' => 'Le numéro doit être un numéro Airtel (074, 077, 076) ou Moov (062, 065, 066, 060) valide.'
         ]);
 
         $user = $request->user();
 
-        // Utiliser le service Mobile Money pour E-Billing
-        $result = $this->mobileMoneyService->initiateDeposit($user, $validated);
+        // Utiliser la nouvelle méthode avec polling
+        $result = $this->mobileMoneyService->initiateDepositWithPolling($user, $validated);
 
         if ($result['success']) {
             return response()->json([
                 'success' => true,
                 'transaction' => $result['transaction'],
-                'payment_url' => env('EBILLING_POST_URL'),
-                'invoice_number' => $result['invoice']['bill_id'],
-                'message' => 'Redirection vers la page de paiement...'
+                'message' => $result['message'],
+                'polling_duration' => $result['polling_duration'],
+                'instructions' => 'Suivez les instructions sur votre téléphone. Le paiement sera vérifié automatiquement.',
             ]);
         }
 
         return response()->json([
             'success' => false,
-            'message' => $result['message'] ?? 'Erreur lors de l\'initialisation du paiement'
+            'message' => $result['message']
         ], 400);
+    }
+
+    /**
+     * Vérifier le statut d'une transaction en cours
+     */
+    public function checkTransactionStatus(Request $request, $reference)
+    {
+        $transaction = $request->user()->transactions()
+            ->where('reference', $reference)
+            ->firstOrFail();
+
+        $response = [
+            'reference' => $transaction->reference,
+            'status' => $transaction->status,
+            'amount' => $transaction->amount,
+            'created_at' => $transaction->created_at,
+            'processed_at' => $transaction->processed_at,
+        ];
+
+        // Ajouter des informations spécifiques selon le statut
+        switch ($transaction->status) {
+            case 'pending':
+                $startTime = $transaction->metadata['polling_started_at'] ?? $transaction->created_at;
+                $elapsedSeconds = now()->diffInSeconds($startTime);
+                $maxTime = $transaction->metadata['max_polling_time'] ?? 60;
+
+                $response['elapsed_time'] = $elapsedSeconds;
+                $response['remaining_time'] = max(0, $maxTime - $elapsedSeconds);
+                $response['message'] = 'Paiement en cours de vérification...';
+                break;
+
+            case 'completed':
+                $response['message'] = 'Paiement réussi ! Votre compte a été crédité.';
+                break;
+
+            case 'failed':
+                $response['message'] = 'Paiement échoué. Vous pouvez réessayer.';
+                $response['can_retry'] = true;
+                break;
+        }
+
+        return response()->json($response);
     }
 
     /**
@@ -133,7 +181,19 @@ class WalletController extends Controller
         $validated = $request->validate([
             'amount' => 'required|numeric|min:1000|max:500000',
             'payment_method' => 'required|string|in:airtel,moov',
-            'phone_number' => 'required|string|regex:/^(\+241|0)[0-9]{8}$/',
+            'phone_number' => [
+                'required',
+                'string',
+                Rule::regex('/^(074|077|076|062|065|066|060)[0-9]{6}$/'),
+                function ($attribute, $value, $fail) use ($request) {
+                    $operator = $this->getOperatorFromPhone($value);
+                    if ($operator !== $request->payment_method) {
+                        $fail('Le numéro ne correspond pas à l\'opérateur sélectionné.');
+                    }
+                }
+            ],
+        ], [
+            'phone_number.regex' => 'Le numéro doit être un numéro Airtel (074, 077, 076) ou Moov (062, 065, 066, 060) valide.'
         ]);
 
         $user = $request->user();
@@ -173,61 +233,20 @@ class WalletController extends Controller
     }
 
     /**
-     * Simulate Mobile Money deposit processing.
+     * Déterminer l'opérateur depuis le numéro de téléphone
      */
-    private function processMobileMoneyDeposit(Transaction $transaction)
+    private function getOperatorFromPhone($phone)
     {
-        // En production, ici on appellerait l'API Mobile Money
-        // Pour le MVP, on simule une confirmation automatique après 2 secondes
+        $prefix = substr($phone, 0, 3);
 
-        dispatch(function () use ($transaction) {
-            sleep(2);
+        if (in_array($prefix, ['074', '077', '076'])) {
+            return 'airtelmoney';
+        }
 
-            // Simuler 90% de succès
-            if (rand(1, 10) <= 9) {
-                DB::transaction(function () use ($transaction) {
-                    $wallet = $transaction->wallet;
+        if (in_array($prefix, ['062', '065', '066', '060'])) {
+            return 'moovmoney4';
+        }
 
-                    // Mettre à jour le solde
-                    $wallet->deposit(
-                        $transaction->amount,
-                        $transaction->payment_method,
-                        $transaction->phone_number
-                    );
-
-                    // Marquer la transaction comme complétée
-                    $transaction->markAsCompleted('MM-' . uniqid());
-                });
-            } else {
-                $transaction->markAsFailed('Transaction échouée par l\'opérateur');
-            }
-        })->afterResponse();
-    }
-
-    /**
-     * Simulate Mobile Money withdrawal processing.
-     */
-    private function processMobileMoneyWithdrawal(Transaction $transaction)
-    {
-        // En production, ici on appellerait l'API Mobile Money
-        dispatch(function () use ($transaction) {
-            sleep(3);
-
-            // Simuler 95% de succès pour les retraits
-            if (rand(1, 20) <= 19) {
-                $transaction->markAsCompleted('MM-' . uniqid());
-            } else {
-                // En cas d'échec, rembourser
-                DB::transaction(function () use ($transaction) {
-                    $wallet = $transaction->wallet;
-                    $refundAmount = abs($transaction->amount) + $transaction->fee;
-
-                    $wallet->balance += $refundAmount;
-                    $wallet->save();
-
-                    $transaction->markAsFailed('Transaction échouée par l\'opérateur');
-                });
-            }
-        })->afterResponse();
+        return null;
     }
 }
