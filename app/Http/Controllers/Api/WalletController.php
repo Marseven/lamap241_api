@@ -105,7 +105,7 @@ class WalletController extends Controller
 
         $user = $request->user();
 
-        $validated['payment_method'] = $this->getOperatorFromPhone($validated['phone']);
+        $validated['payment_method'] = $this->getOperatorFromPhone($validated['phone_number']);
 
         // Utiliser la nouvelle méthode avec polling
         $result = $this->mobileMoneyService->initiateDepositWithPolling($user, $validated);
