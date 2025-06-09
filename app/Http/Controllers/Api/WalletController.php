@@ -91,24 +91,24 @@ class WalletController extends Controller
      */
     public function deposit(Request $request)
     {
-        $validated = $request->validate([
-            'amount' => 'required|numeric|min:500|max:1000000',
-            'payment_method' => 'required|string|in:airtel,moov',
-            'phone_number' => [
-                'required',
-                'string',
-                Rule::regex('/^(074|077|076|062|065|066|060)[0-9]{6}$/'),
-                function ($attribute, $value, $fail) use ($request) {
-                    // Vérifier que le numéro correspond à l'opérateur choisi
-                    $operator = $this->getOperatorFromPhone($value);
-                    if ($operator !== $request->payment_method) {
-                        $fail('Le numéro ne correspond pas à l\'opérateur sélectionné.');
+        $validated = $request->validate(
+            [
+                'amount' => 'required|numeric|min:500|max:1000000',
+                'payment_method' => 'required|string|in:airtel,moov',
+                'phone_number' => [
+                    'required',
+                    'string',
+                    Rule::regex('/^(074|077|076|062|065|066|060)[0-9]{6}$/'),
+                    function ($attribute, $value, $fail) use ($request) {
+
+                        $operator = $this->getOperatorFromPhone($value);
+                        if ($operator !== $request->payment_method) {
+                            $fail('Le numéro ne correspond pas à l\'opérateur sélectionné.');
+                        }
                     }
-                }
+                ],
             ],
-        ], [
-            'phone_number.regex' => 'Le numéro doit être un numéro Airtel (074, 077, 076) ou Moov (062, 065, 066, 060) valide.'
-        ]);
+        );
 
         $user = $request->user();
 
