@@ -303,8 +303,9 @@ class MobileMoneyService
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($this->ebillingUrl, $payload);
 
-            Log::debug($response);
-            dd($response);
+
+            var_dump($response);
+            die;
 
             if ($response->successful()) {
                 $data = $response->json();
