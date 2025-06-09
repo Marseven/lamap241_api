@@ -303,6 +303,9 @@ class MobileMoneyService
                 ->withHeaders(['Content-Type' => 'application/json'])
                 ->post($this->ebillingUrl, $payload);
 
+            Log::debug($response);
+            dd($response);
+
             if ($response->successful()) {
                 $data = $response->json();
                 Log::info('E-Billing invoice created', [
