@@ -89,6 +89,7 @@ class WalletController extends Controller
      */
     public function deposit(Request $request)
     {
+        dd($request);
         $validated = $request->validate([
             'amount' => 'required|numeric|min:500|max:1000000',
             'payment_method' => 'required|string|in:airtel,moov',
