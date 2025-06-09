@@ -98,14 +98,7 @@ class WalletController extends Controller
                 'phone_number' => [
                     'required',
                     'string',
-                    Rule::regex('/^(074|077|076|062|065|066|060)[0-9]{6}$/'),
-                    function ($attribute, $value, $fail) use ($request) {
-
-                        $operator = $this->getOperatorFromPhone($value);
-                        if ($operator !== $request->payment_method) {
-                            $fail('Le numéro ne correspond pas à l\'opérateur sélectionné.');
-                        }
-                    }
+                    'regex:/^(074|077|076|062|065|066|060)[0-9]{6}$/',
                 ],
             ],
         );
