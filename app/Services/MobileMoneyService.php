@@ -299,37 +299,94 @@ class MobileMoneyService
         ];
 
         try {
-            $response = Http::withBasicAuth($this->ebillingUsername, $this->ebillingSharedKey)
-                ->withHeaders(['Content-Type' => 'application/json'])
-                ->post($this->ebillingUrl, $payload);
+            // Initialiser cURL
+            $ch = curl_init();
 
+            // Préparer l'authentification Basic Auth
+            $auth = base64_encode($this->ebillingUsername . ':' . $this->ebillingSharedKey);
 
-            var_dump($response);
-            die;
+            // Configuration cURL
+            curl_setopt_array($ch, [
+                CURLOPT_URL => $this->ebillingUrl,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST => true,
+                CURLOPT_POSTFIELDS => json_encode($payload),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'Accept: application/json',
+                    'Authorization: Basic ' . $auth
+                ],
+                CURLOPT_TIMEOUT => 30,
+                CURLOPT_CONNECTTIMEOUT => 10,
+                CURLOPT_SSL_VERIFYPEER => false, // En production, mettez à true
+                CURLOPT_VERBOSE => env('APP_DEBUG', false),
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_MAXREDIRS => 3
+            ]);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                Log::info('E-Billing invoice created', [
-                    'user_id' => $user->id,
-                    'reference' => $transaction->reference,
-                    'bill_id' => $data['e_bill']['bill_id'] ?? null
+            // Exécuter la requête
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
+
+            // Log pour debug
+            Log::info('E-Billing cURL request', [
+                'url' => $this->ebillingUrl,
+                'payload' => $payload,
+                'http_code' => $httpCode,
+                'response_length' => strlen($response),
+                'curl_error' => $error
+            ]);
+
+            // Vérifier les erreurs cURL
+            if ($error) {
+                Log::error('E-Billing cURL error', [
+                    'error' => $error,
+                    'errno' => curl_errno($ch)
                 ]);
-
-                return $data['e_bill'] ?? null;
+                curl_close($ch);
+                return null;
             }
 
-            Log::error('E-Billing invoice creation failed', [
-                'status' => $response->status(),
-                'body' => $response->body()
-            ]);
+            curl_close($ch);
+
+            // Vérifier le code de réponse HTTP
+            if ($httpCode >= 200 && $httpCode < 300) {
+                $data = json_decode($response, true);
+
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    Log::error('E-Billing invalid JSON response', [
+                        'response' => $response,
+                        'json_error' => json_last_error_msg()
+                    ]);
+                    return null;
+                }
+
+                Log::info('E-Billing invoice created successfully', [
+                    'user_id' => $user->id,
+                    'reference' => $transaction->reference,
+                    'bill_id' => $data['e_bill']['bill_id'] ?? $data['bill_id'] ?? null,
+                    'response_data' => $data
+                ]);
+
+                // Retourner la structure de facture
+                return $data['e_bill'] ?? $data ?? null;
+            } else {
+                Log::error('E-Billing HTTP error', [
+                    'http_code' => $httpCode,
+                    'response' => $response,
+                    'payload' => $payload
+                ]);
+                return null;
+            }
         } catch (\Exception $e) {
             Log::error('E-Billing exception', [
                 'message' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
+                'payload' => $payload
             ]);
+            return null;
         }
-
-        return null;
     }
 
     /**
