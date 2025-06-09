@@ -89,11 +89,19 @@ class WalletController extends Controller
      */
     public function deposit(Request $request)
     {
-        dd($request);
         $validated = $request->validate([
             'amount' => 'required|numeric|min:500|max:1000000',
             'payment_method' => 'required|string|in:airtel,moov',
-            'phone_number' => 'required|string|regex:/^(074|077|076|062|065|066|060)[0-9]{6}$/',
+            'phone_number' => [
+                'required',
+                'string',
+                function ($attribute, $value, $fail) {
+                    $pattern = '/^(074|077|076|062|065|066|060)[0-9]{6}$/';
+                    if (!preg_match($pattern, $value)) {
+                        $fail('Le numéro doit être un numéro Airtel (074, 077, 076) ou Moov (062, 065, 066, 060) valide.');
+                    }
+                },
+            ],
         ]);
 
         $user = $request->user();
