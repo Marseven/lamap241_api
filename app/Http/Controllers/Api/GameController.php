@@ -16,7 +16,7 @@ class GameController extends Controller
     public function show(Request $request, $gameId)
     {
         $game = Game::with(['gameRoom', 'currentPlayer', 'roundWinner'])
-            ->findOrFail($gameId);
+            ->where('code', $gameId)->firstOrFail();
 
         // Vérifier que l'utilisateur est dans la partie
         if (!$this->userInGame($request->user(), $game)) {
@@ -50,7 +50,7 @@ class GameController extends Controller
      */
     public function state(Request $request, $gameId)
     {
-        $game = Game::findOrFail($gameId);
+        $game = Game::where('code', $gameId)->firstOrFail();
         $user = $request->user();
 
         // Vérifier que l'utilisateur est dans la partie
@@ -103,11 +103,11 @@ class GameController extends Controller
     {
         $validated = $request->validate([
             'card' => 'required|array',
-            'card.value' => 'required|integer|min:2|max:10',
+            'card.value' => 'required|integer|min:3|max:10',
             'card.suit' => 'required|string|in:♠,♥,♣,♦',
         ]);
 
-        $game = Game::findOrFail($gameId);
+        $game = Game::where('code', $gameId)->firstOrFail();
         $user = $request->user();
 
         // Vérifications
@@ -159,7 +159,7 @@ class GameController extends Controller
      */
     public function pass(Request $request, $gameId)
     {
-        $game = Game::findOrFail($gameId);
+        $game = Game::where('code', $gameId)->firstOrFail();
         $user = $request->user();
 
         // Vérifications similaires à playCard
@@ -204,7 +204,7 @@ class GameController extends Controller
      */
     public function forfeit(Request $request, $gameId)
     {
-        $game = Game::findOrFail($gameId);
+        $game = Game::where('code', $gameId)->firstOrFail();
         $user = $request->user();
         $room = $game->gameRoom;
 
@@ -257,7 +257,7 @@ class GameController extends Controller
      */
     public function moves(Request $request, $gameId)
     {
-        $game = Game::findOrFail($gameId);
+        $game = Game::where('code', $gameId)->firstOrFail();
 
         // Vérifier l'accès
         if (
