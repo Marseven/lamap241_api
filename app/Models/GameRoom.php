@@ -22,6 +22,7 @@ class GameRoom extends Model
         'rounds_to_win',
         'time_limit',
         'allow_spectators',
+        'is_exhibition',
         'status',
         'winner_id',
         'started_at',
@@ -34,6 +35,7 @@ class GameRoom extends Model
         'pot_amount' => 'decimal:2',
         'commission_amount' => 'decimal:2',
         'allow_spectators' => 'boolean',
+        'is_exhibition' => 'boolean',
         'settings' => 'json',
         'started_at' => 'datetime',
         'finished_at' => 'datetime'
@@ -57,7 +59,14 @@ class GameRoom extends Model
 
         static::creating(function ($room) {
             $room->code = static::generateUniqueCode();
-            $room->commission_amount = $room->bet_amount * $room->max_players * 0.1;
+            // Pour les parties d'exhibition, pas de commission
+            if (!$room->is_exhibition) {
+                $room->commission_amount = $room->bet_amount * $room->max_players * 0.1;
+            } else {
+                $room->commission_amount = 0;
+                $room->bet_amount = 0;
+                $room->pot_amount = 0;
+            }
         });
     }
 
@@ -151,15 +160,18 @@ class GameRoom extends Model
             return false;
         }
 
-        // Check if user can afford the bet
-        if (!$user->canAfford($this->bet_amount)) {
-            return false;
-        }
+        // Pour les parties d'exhibition, pas besoin de vérifier le solde
+        if (!$this->is_exhibition) {
+            // Check if user can afford the bet
+            if (!$user->canAfford($this->bet_amount)) {
+                return false;
+            }
 
-        // Place the bet
-        $transaction = $user->wallet->placeBet($this->bet_amount, $this->id);
-        if (!$transaction) {
-            return false;
+            // Place the bet
+            $transaction = $user->wallet->placeBet($this->bet_amount, $this->id);
+            if (!$transaction) {
+                return false;
+            }
         }
 
         // Add player to room
@@ -171,7 +183,9 @@ class GameRoom extends Model
 
         // Update room
         $this->current_players++;
-        $this->pot_amount += $this->bet_amount;
+        if (!$this->is_exhibition) {
+            $this->pot_amount += $this->bet_amount;
+        }
 
         if ($this->isFull()) {
             $this->status = self::STATUS_READY;
@@ -190,8 +204,8 @@ class GameRoom extends Model
             return false;
         }
 
-        // If game hasn't started, refund the bet
-        if ($this->status === self::STATUS_WAITING || $this->status === self::STATUS_READY) {
+        // If game hasn't started, refund the bet (sauf pour les parties d'exhibition)
+        if (($this->status === self::STATUS_WAITING || $this->status === self::STATUS_READY) && !$this->is_exhibition) {
             $user->wallet->unlockAmount($this->bet_amount);
             $user->wallet->addBalance($this->bet_amount);
 
@@ -257,27 +271,39 @@ class GameRoom extends Model
         $this->status = self::STATUS_FINISHED;
         $this->finished_at = now();
 
-        // Calculate winnings (90% of pot)
-        $winnings = $this->pot_amount * 0.9;
+        // Pour les parties d'exhibition, pas de gains financiers
+        if (!$this->is_exhibition) {
+            // Calculate winnings (90% of pot)
+            $winnings = $this->pot_amount * 0.9;
 
-        // Unlock winner's bet
-        $winner->wallet->unlockAmount($this->bet_amount);
+            // Unlock winner's bet
+            $winner->wallet->unlockAmount($this->bet_amount);
 
-        // Add winnings
-        $winner->wallet->addWinnings($winnings, $this->id);
+            // Add winnings
+            $winner->wallet->addWinnings($winnings, $this->id);
 
-        // Update winner stats
-        $stats = $winner->getOrCreateStats();
-        $stats->games_won++;
-        $stats->total_won += $winnings;
-        $stats->current_streak++;
-        if ($stats->current_streak > $stats->best_streak) {
-            $stats->best_streak = $stats->current_streak;
+            // Update winner stats with winnings
+            $stats = $winner->getOrCreateStats();
+            $stats->games_won++;
+            $stats->total_won += $winnings;
+            $stats->current_streak++;
+            if ($stats->current_streak > $stats->best_streak) {
+                $stats->best_streak = $stats->current_streak;
+            }
+            if ($winnings > $stats->biggest_win) {
+                $stats->biggest_win = $winnings;
+            }
+            $stats->save();
+        } else {
+            // Pour les parties d'exhibition, juste mettre à jour les stats sans gains
+            $stats = $winner->getOrCreateStats();
+            $stats->games_won++;
+            $stats->current_streak++;
+            if ($stats->current_streak > $stats->best_streak) {
+                $stats->best_streak = $stats->current_streak;
+            }
+            $stats->save();
         }
-        if ($winnings > $stats->biggest_win) {
-            $stats->biggest_win = $winnings;
-        }
-        $stats->save();
 
         // Update losers stats
         $this->activePlayers()->where('users.id', '!=', $winner->id)->each(function ($loser) {

@@ -67,17 +67,19 @@ class GameRoomController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:100',
-            'bet_amount' => 'required|numeric|min:500|max:100000',
+            'bet_amount' => 'required_if:is_exhibition,false|numeric|min:500|max:100000',
             'max_players' => 'sometimes|integer|min:2|max:4',
             'rounds_to_win' => 'sometimes|integer|min:1|max:5',
             'time_limit' => 'sometimes|integer|min:60|max:600',
             'allow_spectators' => 'sometimes|boolean',
+            'is_exhibition' => 'sometimes|boolean',
         ]);
 
         $user = $request->user();
 
-        // Vérifier le solde
-        if (!$user->canAfford($validated['bet_amount'])) {
+        // Vérifier le solde seulement si ce n'est pas une partie d'exhibition
+        $isExhibition = $validated['is_exhibition'] ?? false;
+        if (!$isExhibition && !$user->canAfford($validated['bet_amount'])) {
             return response()->json([
                 'message' => 'Solde insuffisant',
                 'required' => $validated['bet_amount'],
@@ -86,15 +88,16 @@ class GameRoomController extends Controller
         }
 
         // Créer la salle
-        $room = DB::transaction(function () use ($validated, $user) {
+        $room = DB::transaction(function () use ($validated, $user, $isExhibition) {
             $room = GameRoom::create([
                 'name' => $validated['name'],
                 'creator_id' => $user->id,
-                'bet_amount' => $validated['bet_amount'],
+                'bet_amount' => $isExhibition ? 0 : $validated['bet_amount'],
                 'max_players' => $validated['max_players'] ?? 2,
                 'rounds_to_win' => $validated['rounds_to_win'] ?? 3,
                 'time_limit' => $validated['time_limit'] ?? 300,
                 'allow_spectators' => $validated['allow_spectators'] ?? false,
+                'is_exhibition' => $isExhibition,
                 'current_players' => 0,
                 'pot_amount' => 0,
             ]);
@@ -155,8 +158,8 @@ class GameRoomController extends Controller
             ], 400);
         }
 
-        // Vérifier le solde
-        if (!$user->canAfford($room->bet_amount)) {
+        // Vérifier le solde seulement si ce n'est pas une partie d'exhibition
+        if (!$room->is_exhibition && !$user->canAfford($room->bet_amount)) {
             return response()->json([
                 'message' => 'Solde insuffisant',
                 'required' => $room->bet_amount,
@@ -288,6 +291,7 @@ class GameRoomController extends Controller
             'rounds_to_win' => $room->rounds_to_win,
             'time_limit' => $room->time_limit,
             'allow_spectators' => $room->allow_spectators,
+            'is_exhibition' => $room->is_exhibition,
             'status' => $room->status,
             'status_label' => $room->status_label,
             'status_color' => $room->status_color,

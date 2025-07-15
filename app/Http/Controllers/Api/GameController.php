@@ -17,7 +17,16 @@ class GameController extends Controller
     {
         $gameRoom = GameRoom::where('code', $gameId)->firstOrFail();
         $game = Game::with(['gameRoom', 'currentPlayer', 'roundWinner'])
-            ->where('game_room_id', $gameRoom->id)->firstOrFail();
+            ->where('game_room_id', $gameRoom->id)->where('status', 'in_progress')->first();
+            
+        if (!$game) {
+            return response()->json([
+                'message' => 'Aucun jeu en cours dans cette salle',
+                'room_status' => $gameRoom->status,
+                'room_code' => $gameRoom->code,
+                'suggestion' => $gameRoom->status === 'waiting' ? 'Attendez que tous les joueurs soient prêts' : 'La partie n\'a pas encore commencé'
+            ], 404);
+        }
 
         // Vérifier que l'utilisateur est dans la partie
         if (!$this->userInGame($request->user(), $game)) {
@@ -52,7 +61,16 @@ class GameController extends Controller
     public function state(Request $request, $gameId)
     {
         $gameRoom = GameRoom::where('code', $gameId)->firstOrFail();
-        $game = Game::where('game_room_id', $gameRoom->id)->firstOrFail();
+        $game = Game::where('game_room_id', $gameRoom->id)->where('status', 'in_progress')->first();
+        
+        if (!$game) {
+            return response()->json([
+                'message' => 'Aucun jeu en cours dans cette salle',
+                'room_status' => $gameRoom->status,
+                'room_code' => $gameRoom->code,
+                'suggestion' => $gameRoom->status === 'waiting' ? 'Attendez que tous les joueurs soient prêts' : 'La partie n\'a pas encore commencé'
+            ], 404);
+        }
         $user = $request->user();
 
         // Vérifier que l'utilisateur est dans la partie
@@ -110,7 +128,16 @@ class GameController extends Controller
         ]);
 
         $gameRoom = GameRoom::where('code', $gameId)->firstOrFail();
-        $game = Game::where('game_room_id', $gameRoom->id)->firstOrFail();
+        $game = Game::where('game_room_id', $gameRoom->id)->where('status', 'in_progress')->first();
+        
+        if (!$game) {
+            return response()->json([
+                'message' => 'Aucun jeu en cours dans cette salle',
+                'room_status' => $gameRoom->status,
+                'room_code' => $gameRoom->code,
+                'suggestion' => $gameRoom->status === 'waiting' ? 'Attendez que tous les joueurs soient prêts' : 'La partie n\'a pas encore commencé'
+            ], 404);
+        }
         $user = $request->user();
 
         // Vérifications
@@ -163,7 +190,16 @@ class GameController extends Controller
     public function pass(Request $request, $gameId)
     {
         $gameRoom = GameRoom::where('code', $gameId)->firstOrFail();
-        $game = Game::where('game_room_id', $gameRoom->id)->firstOrFail();
+        $game = Game::where('game_room_id', $gameRoom->id)->where('status', 'in_progress')->first();
+        
+        if (!$game) {
+            return response()->json([
+                'message' => 'Aucun jeu en cours dans cette salle',
+                'room_status' => $gameRoom->status,
+                'room_code' => $gameRoom->code,
+                'suggestion' => $gameRoom->status === 'waiting' ? 'Attendez que tous les joueurs soient prêts' : 'La partie n\'a pas encore commencé'
+            ], 404);
+        }
         $user = $request->user();
 
         // Vérifications similaires à playCard
@@ -209,7 +245,16 @@ class GameController extends Controller
     public function forfeit(Request $request, $gameId)
     {
         $gameRoom = GameRoom::where('code', $gameId)->firstOrFail();
-        $game = Game::where('game_room_id', $gameRoom->id)->firstOrFail();
+        $game = Game::where('game_room_id', $gameRoom->id)->where('status', 'in_progress')->first();
+        
+        if (!$game) {
+            return response()->json([
+                'message' => 'Aucun jeu en cours dans cette salle',
+                'room_status' => $gameRoom->status,
+                'room_code' => $gameRoom->code,
+                'suggestion' => $gameRoom->status === 'waiting' ? 'Attendez que tous les joueurs soient prêts' : 'La partie n\'a pas encore commencé'
+            ], 404);
+        }
         $user = $request->user();
         $room = $game->gameRoom;
 
@@ -263,7 +308,16 @@ class GameController extends Controller
     public function moves(Request $request, $gameId)
     {
         $gameRoom = GameRoom::where('code', $gameId)->firstOrFail();
-        $game = Game::where('game_room_id', $gameRoom->id)->firstOrFail();
+        $game = Game::where('game_room_id', $gameRoom->id)->first();
+        
+        if (!$game) {
+            return response()->json([
+                'message' => 'Aucun jeu dans cette salle',
+                'room_status' => $gameRoom->status,
+                'room_code' => $gameRoom->code,
+                'moves' => []
+            ], 404);
+        }
 
         // Vérifier l'accès
         if (
