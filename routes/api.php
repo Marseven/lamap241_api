@@ -8,7 +8,6 @@ use App\Http\Controllers\Api\StatsController;
 use App\Http\Controllers\Api\CallbackController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Broadcast;
 
 /*
 |--------------------------------------------------------------------------
@@ -24,9 +23,23 @@ Route::group(['prefix' => 'auth'], function () {
 
 // Routes protégées
 Route::middleware('auth:sanctum')->group(function () {
-    // Broadcasting authentication
+    // Broadcasting authentication  
     Route::post('/broadcasting/auth', function (Request $request) {
-        return Broadcast::auth($request);
+        $user = $request->user();
+        
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        // Pour les canaux Reverb, on retourne simplement les infos utilisateur
+        return response()->json([
+            'user_id' => $user->id,
+            'user_info' => [
+                'id' => $user->id,
+                'pseudo' => $user->pseudo,
+                'name' => $user->name,
+            ]
+        ]);
     });
 
     // Authentification
