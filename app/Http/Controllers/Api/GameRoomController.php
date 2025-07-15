@@ -180,6 +180,9 @@ class GameRoomController extends Controller
 
         // Notifier les autres joueurs (via WebSocket en production)
         broadcast(new \App\Events\PlayerJoinedRoom($room, $user))->toOthers();
+        
+        // Déclencher l'événement de mise à jour de la salle
+        broadcast(new \App\Events\RoomUpdated($room, 'player_joined'));
 
         return response()->json([
             'room' => $this->formatRoom($room),

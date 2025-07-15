@@ -37,7 +37,14 @@ class GameStarted implements ShouldBroadcast
     {
         return [
             new PresenceChannel('room.' . $this->room->code),
+            new PresenceChannel('game.' . $this->room->code),
+            new Channel('notifications'), // Pour les notifications générales
         ];
+    }
+
+    public function broadcastAs()
+    {
+        return 'game.started';
     }
 
     /**
@@ -52,12 +59,23 @@ class GameStarted implements ShouldBroadcast
                 'code' => $this->room->code,
                 'name' => $this->room->name,
                 'status' => $this->room->status,
+                'is_exhibition' => $this->room->is_exhibition,
+                'bet_amount' => $this->room->bet_amount,
             ],
             'game' => [
                 'id' => $this->game->id,
                 'round_number' => $this->game->round_number,
                 'status' => $this->game->status,
+                'current_player_id' => $this->game->current_player_id,
             ],
+            'players' => $this->room->players->map(function ($player) {
+                return [
+                    'id' => $player->id,
+                    'pseudo' => $player->pseudo,
+                    'avatar' => $player->avatar,
+                ];
+            }),
+            'message' => 'La partie a commencé !',
             'timestamp' => now()->toISOString(),
         ];
     }

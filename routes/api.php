@@ -15,8 +15,8 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
-// Routes publiques
-Route::group(['prefix' => 'auth'], function () {
+// Routes publiques avec rate limiting renforcé
+Route::group(['prefix' => 'auth', 'middleware' => 'api.rate:auth'], function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
 });
@@ -50,18 +50,22 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/change-password', [AuthController::class, 'changePassword']);
     });
 
-    // Portefeuille
+    // Portefeuille avec rate limiting pour les paiements
     Route::group(['prefix' => 'wallet'], function () {
         Route::get('/balance', [WalletController::class, 'balance']);
         Route::get('/transactions', [WalletController::class, 'transactions']);
         Route::get('/transactions/{reference}', [WalletController::class, 'transactionDetails']);
-        Route::post('/deposit', [WalletController::class, 'deposit']);
-        Route::post('/withdraw', [WalletController::class, 'withdraw']);
         Route::get('/transaction/{reference}/status', [WalletController::class, 'checkTransactionStatus']);
+        
+        // Routes de paiement avec rate limiting strict
+        Route::group(['middleware' => 'api.rate:payment'], function () {
+            Route::post('/deposit', [WalletController::class, 'deposit']);
+            Route::post('/withdraw', [WalletController::class, 'withdraw']);
+        });
     });
 
-    // Salles de jeu
-    Route::group(['prefix' => 'rooms'], function () {
+    // Salles de jeu avec rate limiting
+    Route::group(['prefix' => 'rooms', 'middleware' => 'api.rate:game'], function () {
         Route::get('/', [GameRoomController::class, 'index']);
         Route::post('/', [GameRoomController::class, 'create']);
         Route::get('/{code}', [GameRoomController::class, 'show']);
@@ -70,8 +74,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{code}/ready', [GameRoomController::class, 'ready']);
     });
 
-    // Jeux
-    Route::group(['prefix' => 'games'], function () {
+    // Jeux avec rate limiting pour les actions de jeu
+    Route::group(['prefix' => 'games', 'middleware' => 'api.rate:game'], function () {
         Route::get('/{gameId}', [GameController::class, 'show']);
         Route::get('/{gameId}/state', [GameController::class, 'state']);
         Route::post('/{gameId}/play', [GameController::class, 'playCard']);

@@ -44,6 +44,11 @@ class CardPlayed implements ShouldBroadcast
         ];
     }
 
+    public function broadcastAs()
+    {
+        return 'card.played';
+    }
+
     /**
      * Get the data to broadcast.
      *
@@ -55,9 +60,17 @@ class CardPlayed implements ShouldBroadcast
             'player' => [
                 'id' => $this->player->id,
                 'pseudo' => $this->player->pseudo,
+                'avatar' => $this->player->avatar,
             ],
             'card' => $this->card,
-            'game_state' => $this->gameState,
+            'game' => [
+                'id' => $this->game->id,
+                'round_number' => $this->game->round_number,
+                'current_player_id' => $this->game->current_player_id,
+                'status' => $this->game->status,
+            ],
+            'room_code' => $this->game->gameRoom->code,
+            'message' => "{$this->player->pseudo} a joué une carte",
             'timestamp' => now()->toISOString(),
         ];
     }
