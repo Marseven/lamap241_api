@@ -179,7 +179,7 @@ class GameRoomController extends Controller
         $room->load(['players']);
 
         // Notifier les autres joueurs (via WebSocket en production)
-        // broadcast(new PlayerJoinedRoom($room, $user))->toOthers();
+        broadcast(new \App\Events\PlayerJoinedRoom($room, $user))->toOthers();
 
         return response()->json([
             'room' => $this->formatRoom($room),
@@ -253,7 +253,7 @@ class GameRoomController extends Controller
                 $game->dealCards();
 
                 // Notifier les joueurs que la partie commence
-                // broadcast(new GameStarted($room, $game))->toOthers();
+                broadcast(new \App\Events\GameStarted($room, $game))->toOthers();
 
                 return response()->json([
                     'message' => 'La partie commence !',

@@ -176,7 +176,7 @@ class GameController extends Controller
         }
 
         // Notifier les autres joueurs
-        // broadcast(new CardPlayed($game, $user, $validated['card']))->toOthers();
+        broadcast(new \App\Events\CardPlayed($game, $user, $validated['card']))->toOthers();
 
         return response()->json([
             'message' => 'Carte jouée avec succès',
@@ -231,7 +231,7 @@ class GameController extends Controller
         }
 
         // Notifier les autres joueurs
-        // broadcast(new PlayerPassed($game, $user))->toOthers();
+        broadcast(new \App\Events\PlayerPassed($game, $user))->toOthers();
 
         return response()->json([
             'message' => 'Tour passé',

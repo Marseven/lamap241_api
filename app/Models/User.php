@@ -107,7 +107,7 @@ class User extends Authenticatable
      */
     public function canAfford($amount): bool
     {
-        return $this->balance >= $amount;
+        return $this->wallet && $this->wallet->balance >= $amount;
     }
 
     /**
@@ -115,12 +115,12 @@ class User extends Authenticatable
      */
     public function deductBalance($amount): bool
     {
-        if (!$this->canAfford($amount)) {
+        if (!$this->wallet || !$this->canAfford($amount)) {
             return false;
         }
 
-        $this->balance -= $amount;
-        return $this->save();
+        $this->wallet->balance -= $amount;
+        return $this->wallet->save();
     }
 
     /**
@@ -128,8 +128,13 @@ class User extends Authenticatable
      */
     public function addBalance($amount): bool
     {
-        $this->balance += $amount;
-        return $this->save();
+        if (!$this->wallet) {
+            $this->wallet()->create(['balance' => $amount]);
+            return true;
+        }
+
+        $this->wallet->balance += $amount;
+        return $this->wallet->save();
     }
 
     /**
