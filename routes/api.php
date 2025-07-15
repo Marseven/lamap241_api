@@ -6,7 +6,9 @@ use App\Http\Controllers\Api\GameRoomController;
 use App\Http\Controllers\Api\GameController;
 use App\Http\Controllers\Api\StatsController;
 use App\Http\Controllers\Api\CallbackController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Broadcast;
 
 /*
 |--------------------------------------------------------------------------
@@ -22,6 +24,11 @@ Route::group(['prefix' => 'auth'], function () {
 
 // Routes protégées
 Route::middleware('auth:sanctum')->group(function () {
+    // Broadcasting authentication
+    Route::post('/broadcasting/auth', function (Request $request) {
+        return Broadcast::auth($request);
+    });
+
     // Authentification
     Route::group(['prefix' => 'auth'], function () {
         Route::post('/logout', [AuthController::class, 'logout']);
