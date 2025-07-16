@@ -21,18 +21,23 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => [
+    'allowed_origins' => array_filter(array_merge([
         'http://localhost:3000',
         'http://localhost:5173', // Vite dev server
         'http://127.0.0.1:3000',
         'http://127.0.0.1:5173',
         env('FRONTEND_URL', 'http://localhost:3000'),
-        // Ajouter vos domaines de production ici
+        env('FRONTEND_URL_PROD', 'https://lamap241.vercel.app'),
+        // Domaines de production
         'https://lamap241.vercel.app',
-        // 'https://www.lamap241.com',
-    ],
+        'https://lamap241-git-main-lamap241.vercel.app', // Branches Vercel
+        'https://www.lamap241.com',
+        'https://lamap241.com',
+    ], explode(',', env('FRONTEND_URLS', '')))),
 
-    'allowed_origins_patterns' => [],
+    'allowed_origins_patterns' => [
+        '#^https://lamap241.*\.vercel\.app$#', // Pattern pour toutes les URLs Vercel
+    ],
 
     'allowed_headers' => ['*'],
 
