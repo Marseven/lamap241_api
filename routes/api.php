@@ -6,6 +6,9 @@ use App\Http\Controllers\Api\GameRoomController;
 use App\Http\Controllers\Api\GameController;
 use App\Http\Controllers\Api\StatsController;
 use App\Http\Controllers\Api\CallbackController;
+use App\Http\Controllers\Api\BotController;
+use App\Http\Controllers\Api\GameTransitionController;
+use App\Http\Controllers\Api\EnhancedStatsController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -84,12 +87,48 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{gameId}/moves', [GameController::class, 'moves']);
     });
 
-    // Statistiques
+    // Statistiques de base
     Route::group(['prefix' => 'stats'], function () {
         Route::get('/me', [StatsController::class, 'myStats']);
         Route::get('/leaderboard', [StatsController::class, 'leaderboard']);
         Route::get('/achievements', [StatsController::class, 'achievements']);
         Route::get('/user/{userId}', [StatsController::class, 'userStats']);
+    });
+
+    // Statistiques avancées
+    Route::group(['prefix' => 'enhanced-stats'], function () {
+        Route::get('/me/detailed', [EnhancedStatsController::class, 'getMyDetailedStats']);
+        Route::get('/user/{userId}/detailed', [EnhancedStatsController::class, 'getUserDetailedStats']);
+        Route::get('/leaderboards', [EnhancedStatsController::class, 'getAllLeaderboards']);
+        Route::get('/leaderboard/{type}', [EnhancedStatsController::class, 'getLeaderboard']);
+        Route::get('/me/achievements', [EnhancedStatsController::class, 'getMyAchievements']);
+        Route::get('/user/{userId}/achievements', [EnhancedStatsController::class, 'getUserAchievements']);
+        Route::get('/achievements/leaderboard', [EnhancedStatsController::class, 'getAchievementLeaderboard']);
+        Route::get('/achievements/global', [EnhancedStatsController::class, 'getGlobalAchievementStats']);
+        Route::get('/global', [EnhancedStatsController::class, 'getGlobalStats']);
+        Route::get('/compare/{userId1}/{userId2}', [EnhancedStatsController::class, 'compareUsers']);
+        Route::get('/me/progress', [EnhancedStatsController::class, 'getProgressStats']);
+    });
+
+    // Bots/IA
+    Route::group(['prefix' => 'bots', 'middleware' => 'api.rate:game'], function () {
+        Route::get('/', [BotController::class, 'listBots']);
+        Route::post('/', [BotController::class, 'createBot']);
+        Route::get('/{botId}', [BotController::class, 'getBotStats']);
+        Route::put('/{botId}', [BotController::class, 'updateBot']);
+        Route::delete('/{botId}', [BotController::class, 'deleteBot']);
+        Route::post('/rooms/{roomCode}/add', [BotController::class, 'addBotToRoom']);
+        Route::post('/games/{gameId}/play', [BotController::class, 'playBotMove']);
+    });
+
+    // Transitions de jeu
+    Route::group(['prefix' => 'transitions', 'middleware' => 'api.rate:game'], function () {
+        Route::get('/rooms/{roomCode}/state', [GameTransitionController::class, 'getTransitionState']);
+        Route::post('/rooms/{roomCode}/next-round', [GameTransitionController::class, 'forceNextRound']);
+        Route::post('/rooms/{roomCode}/timeout', [GameTransitionController::class, 'timeoutGame']);
+        Route::delete('/rooms/{roomCode}/cleanup', [GameTransitionController::class, 'cleanupTransition']);
+        Route::get('/rooms/{roomCode}/history', [GameTransitionController::class, 'getTransitionHistory']);
+        Route::get('/rooms/{roomCode}/stats', [GameTransitionController::class, 'getTransitionStats']);
     });
 });
 

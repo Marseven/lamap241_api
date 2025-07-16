@@ -26,7 +26,11 @@ class User extends Authenticatable
         'avatar',
         'status',
         'last_seen_at',
-        'settings'
+        'settings',
+        'is_bot',
+        'bot_difficulty',
+        'bot_settings',
+        'last_bot_activity'
     ];
 
     /**
@@ -49,7 +53,10 @@ class User extends Authenticatable
         'last_seen_at' => 'datetime',
         'password' => 'hashed',
         'settings' => 'json',
-        'balance' => 'decimal:2'
+        'balance' => 'decimal:2',
+        'is_bot' => 'boolean',
+        'bot_settings' => 'json',
+        'last_bot_activity' => 'datetime'
     ];
 
     /**
