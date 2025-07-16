@@ -15,9 +15,11 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->alias([
             'api.rate' => \App\Http\Middleware\ApiRateLimit::class,
+            'cors' => \App\Http\Middleware\CorsMiddleware::class,
         ]);
         
         $middleware->api(prepend: [
+            \App\Http\Middleware\CorsMiddleware::class,
             \App\Http\Middleware\ApiRateLimit::class . ':api',
         ]);
     })
